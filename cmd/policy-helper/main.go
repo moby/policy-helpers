@@ -9,9 +9,12 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/containerd/platforms"
+	"github.com/distribution/reference"
 	policy "github.com/moby/policy-helpers"
 	"github.com/moby/policy-helpers/githubapi"
 	"github.com/opencontainers/go-digest"
+	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/theupdateframework/go-tuf/v2/metadata"
 )
@@ -30,12 +33,14 @@ func run() error {
 		debug         bool
 		bundle        string
 		repo          string
+		platform      string
 	}
 	flag.StringVar(&opts.stateDir, "state-dir", "", "Path to state directory")
 	flag.BoolVar(&opts.requireOnline, "require-online", false, "Require online TUF roots update")
 	flag.BoolVar(&opts.debug, "debug", false, "Enable debug logging")
 	flag.StringVar(&opts.bundle, "bundle", "", "Path to attestation bundle file (if empty, will pull from GitHub)")
 	flag.StringVar(&opts.repo, "repo", "", "GitHub repository to pull attestation from (owner/repo)")
+	flag.StringVar(&opts.platform, "platform", "", "Platform to use for image verification (e.g., linux/amd64)")
 
 	flag.Parse()
 
@@ -66,6 +71,12 @@ func run() error {
 			return errors.Errorf("no artifact path specified")
 		}
 		return runArtifactCmd(ctx, v, args[0], opts.bundle, opts.repo)
+	case "image":
+		args := args[1:]
+		if len(args) == 0 {
+			return errors.Errorf("no image reference specified")
+		}
+		return runImageCmd(ctx, v, args[0], opts.platform)
 	default:
 		return errors.Errorf("unknown command: %s", args[0])
 	}
@@ -114,7 +125,37 @@ func runArtifactCmd(ctx context.Context, v *policy.Verifier, artifactPath string
 
 	log.Printf("artifact %q verified: %+v", artifactPath, verified)
 	return nil
+}
 
+func runImageCmd(ctx context.Context, v *policy.Verifier, imageRef, platformStr string) error {
+	ref, err := reference.Parse(imageRef)
+	if err != nil {
+		return errors.Wrapf(err, "parsing image reference %q", imageRef)
+	}
+
+	var pl *ocispecs.Platform
+	if platformStr != "" {
+		p, err := platforms.Parse(platformStr)
+		if err != nil {
+			return errors.Wrapf(err, "parsing platform %q", platformStr)
+		}
+		p = platforms.Normalize(p)
+		pl = &p
+	}
+
+	desc, provider, err := providerFromRef(ref.String())
+	if err != nil {
+		return errors.Wrapf(err, "getting provider for image %q", imageRef)
+	}
+
+	verified, err := v.VerifyImage(ctx, provider, desc, pl)
+	if err != nil {
+		return errors.Wrapf(err, "verifying image %q", imageRef)
+	}
+
+	log.Printf("image %q verified: %+v", imageRef, verified)
+
+	return nil
 }
 
 type tufLogger struct {
