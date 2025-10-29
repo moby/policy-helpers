@@ -29,8 +29,9 @@ const (
 )
 
 const (
-	ArtifactTypeCosignSignature = "application/vnd.dev.cosign.artifact.sig.v1+json"
-	ArtifactTypeSigstoreBundle  = "application/vnd.dev.sigstore.bundle.v0.3+json"
+	ArtifactTypeCosignSignature  = "application/vnd.dev.cosign.artifact.sig.v1+json"
+	ArtifactTypeSigstoreBundle   = "application/vnd.dev.sigstore.bundle.v0.3+json"
+	MediaTypeCosignSimpleSigning = "application/vnd.dev.cosign.simplesigning.v1+json"
 )
 
 func resolveImageManifest(idx ocispecs.Index, platform ocispecs.Platform) (ocispecs.Descriptor, error) {

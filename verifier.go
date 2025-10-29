@@ -32,8 +32,9 @@ type Verifier struct {
 }
 
 type SignatureInfo struct {
-	Signer     certificate.Summary                  `json:"signature"`
-	Timestamps []verify.TimestampVerificationResult `json:"timestamps"`
+	Signer          certificate.Summary                  `json:"signature"`
+	Timestamps      []verify.TimestampVerificationResult `json:"timestamps"`
+	DockerReference string                               `json:"docker-reference,omitempty"`
 }
 
 func NewVerifier(cfg Config) (*Verifier, error) {
@@ -131,12 +132,7 @@ func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProv
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	alg, rawDgst, err := rawDigest(sc.AttestationManifest.Digest)
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-
-	policy := verify.NewPolicy(verify.WithArtifactDigest(alg, rawDgst), anyCert)
+	var artifactPolicy verify.ArtifactPolicyOption
 
 	tp, err := v.loadTrustProvider()
 	if err != nil {
@@ -164,9 +160,6 @@ func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProv
 	}
 
 	// basic validations
-	if mfst.ArtifactType != image.ArtifactTypeSigstoreBundle {
-		return nil, errors.Errorf("signature manifest %s is not a bundle (artifact type %q)", sc.SignatureManifest.Digest, mfst.ArtifactType)
-	}
 	if mfst.Subject == nil {
 		return nil, errors.Errorf("signature manifest %s has no subject", sc.SignatureManifest.Digest)
 	}
@@ -184,21 +177,76 @@ func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProv
 		return nil, errors.Errorf("signature manifest %s has %d layers, expected 1", sc.SignatureManifest.Digest, len(mfst.Layers))
 	}
 	layer := mfst.Layers[0]
-	if layer.MediaType != image.ArtifactTypeSigstoreBundle {
+
+	var dockerReference string
+
+	var se verify.SignedEntity
+	switch layer.MediaType {
+	case image.ArtifactTypeSigstoreBundle:
+		if mfst.ArtifactType != image.ArtifactTypeSigstoreBundle {
+			return nil, errors.Errorf("signature manifest %s is not a bundle (artifact type %q)", sc.SignatureManifest.Digest, mfst.ArtifactType)
+		}
+		bundleBytes, err := image.ReadBlob(ctx, provider, layer)
+		if err != nil {
+			return nil, errors.Wrapf(err, "reading bundle layer %s from signature manifest %s", layer.Digest, sc.SignatureManifest.Digest)
+		}
+		b, err := loadBundle(bundleBytes)
+		if err != nil {
+			return nil, errors.Wrapf(err, "loading signature bundle from manifest %s", sc.SignatureManifest.Digest)
+		}
+		se = b
+
+		alg, rawDgst, err := rawDigest(sc.AttestationManifest.Digest)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+		artifactPolicy = verify.WithArtifactDigest(alg, rawDgst)
+	case image.MediaTypeCosignSimpleSigning:
+		payloadBytes, err := image.ReadBlob(ctx, provider, layer)
+		if err != nil {
+			return nil, errors.Wrapf(err, "reading bundle layer %s from signature manifest %s", layer.Digest, sc.SignatureManifest.Digest)
+		}
+		var payload struct {
+			Critical struct {
+				Identity struct {
+					DockerReference string `json:"docker-reference"`
+				} `json:"identity"`
+				Image struct {
+					DockerManifestDigest string `json:"docker-manifest-digest"`
+				} `json:"image"`
+				Type string `json:"type"`
+			} `json:"critical"`
+			Optional map[string]any `json:"optional"`
+		}
+		if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+			return nil, errors.Wrapf(err, "unmarshaling simple signing payload from manifest %s", sc.SignatureManifest.Digest)
+		}
+		if payload.Critical.Image.DockerManifestDigest != sc.AttestationManifest.Digest.String() {
+			return nil, errors.Errorf("simple signing payload in manifest %s has docker-manifest-digest %s which does not match attestation manifest digest %s", sc.SignatureManifest.Digest, payload.Critical.Image.DockerManifestDigest, sc.AttestationManifest.Digest)
+		}
+		if payload.Critical.Type != "cosign container image signature" {
+			return nil, errors.Errorf("simple signing payload in manifest %s has invalid type %q", sc.SignatureManifest.Digest, payload.Critical.Type)
+		}
+		dockerReference = payload.Critical.Identity.DockerReference
+		// TODO: are more consistency checks needed for hashedrekord payload vs annotations?
+
+		hrse, err := newHashedRecordSignedEntity(&mfst)
+		if err != nil {
+			return nil, errors.Wrapf(err, "loading hashed record signed entity from manifest %s", sc.SignatureManifest.Digest)
+		}
+		se = hrse
+		alg, rawDgst, err := rawDigest(layer.Digest)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+		artifactPolicy = verify.WithArtifactDigest(alg, rawDgst)
+	default:
 		return nil, errors.Errorf("signature manifest %s layer has invalid media type %s", sc.SignatureManifest.Digest, layer.MediaType)
 	}
 
-	bundleBytes, err := image.ReadBlob(ctx, provider, layer)
-	if err != nil {
-		return nil, errors.Wrapf(err, "reading bundle layer %s from signature manifest %s", layer.Digest, sc.SignatureManifest.Digest)
-	}
+	policy := verify.NewPolicy(artifactPolicy, anyCert)
 
-	b, err := loadBundle(bundleBytes)
-	if err != nil {
-		return nil, errors.Wrapf(err, "loading signature bundle from manifest %s", sc.SignatureManifest.Digest)
-	}
-
-	result, err := gv.Verify(b, policy)
+	result, err := gv.Verify(se, policy)
 	if err != nil {
 		return nil, errors.Wrap(err, "verifying bundle")
 	}
@@ -210,6 +258,7 @@ func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProv
 	si := &SignatureInfo{}
 	si.Signer = *result.Signature.Certificate
 	si.Timestamps = result.VerifiedTimestamps
+	si.DockerReference = dockerReference
 
 	return si, nil
 }
