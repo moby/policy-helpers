@@ -35,6 +35,7 @@ type SignatureInfo struct {
 	Signer          certificate.Summary                  `json:"signature"`
 	Timestamps      []verify.TimestampVerificationResult `json:"timestamps"`
 	DockerReference string                               `json:"docker-reference,omitempty"`
+	TrustRootStatus roots.Status                         `json:"trust-root-status,omitempty"`
 }
 
 func NewVerifier(cfg Config) (*Verifier, error) {
@@ -69,7 +70,7 @@ func (v *Verifier) VerifyArtifact(ctx context.Context, dgst digest.Digest, bundl
 		return nil, errors.Wrap(err, "loading trust provider")
 	}
 
-	trustedRoot, _, err := tp.TrustedRoot(ctx)
+	trustedRoot, st, err := tp.TrustedRoot(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "getting trusted root")
 	}
@@ -88,11 +89,11 @@ func (v *Verifier) VerifyArtifact(ctx context.Context, dgst digest.Digest, bundl
 		return nil, errors.Errorf("no valid signatures found")
 	}
 
-	si := &SignatureInfo{}
-	si.Signer = *result.Signature.Certificate
-	si.Timestamps = result.VerifiedTimestamps
-
-	return si, nil
+	return &SignatureInfo{
+		TrustRootStatus: st,
+		Signer:          *result.Signature.Certificate,
+		Timestamps:      result.VerifiedTimestamps,
+	}, nil
 }
 
 func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProvider, desc ocispecs.Descriptor, platform *ocispecs.Platform) (*SignatureInfo, error) {
@@ -139,7 +140,7 @@ func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProv
 		return nil, errors.Wrap(err, "loading trust provider")
 	}
 
-	trustedRoot, _, err := tp.TrustedRoot(ctx)
+	trustedRoot, st, err := tp.TrustedRoot(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "getting trusted root")
 	}
@@ -255,12 +256,12 @@ func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProv
 		return nil, errors.Errorf("no valid signatures found")
 	}
 
-	si := &SignatureInfo{}
-	si.Signer = *result.Signature.Certificate
-	si.Timestamps = result.VerifiedTimestamps
-	si.DockerReference = dockerReference
-
-	return si, nil
+	return &SignatureInfo{
+		TrustRootStatus: st,
+		Signer:          *result.Signature.Certificate,
+		Timestamps:      result.VerifiedTimestamps,
+		DockerReference: dockerReference,
+	}, nil
 }
 
 func (v *Verifier) loadTrustProvider() (*roots.TrustProvider, error) {

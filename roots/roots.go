@@ -26,9 +26,10 @@ type SigstoreRootsConfig struct {
 }
 
 type TrustProvider struct {
-	mu     sync.Mutex
-	config SigstoreRootsConfig
-	client *tuf.Client
+	mu      sync.RWMutex
+	config  SigstoreRootsConfig
+	client  *tuf.Client
+	fetcher *airgappedFetcher
 
 	status Status
 }
@@ -46,12 +47,8 @@ func NewTrustProvider(cfg SigstoreRootsConfig) (*TrustProvider, error) {
 	if cfg.CachePath == "" {
 		return nil, errors.Errorf("cache path must be provided for trust provider")
 	}
-
 	def := tuf.DefaultOptions()
-	def.CachePath = cfg.CachePath
-	def.ForceCache = !cfg.RequireOnline
-
-	cacheDir := filepath.Join(def.CachePath, tuf.URLToPath(def.RepositoryBaseURL))
+	cacheDir := filepath.Join(cfg.CachePath, tuf.URLToPath(def.RepositoryBaseURL))
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return nil, errors.Wrap(err, "creating cache directory for trust provider")
 	}
@@ -86,17 +83,16 @@ func NewTrustProvider(cfg SigstoreRootsConfig) (*TrustProvider, error) {
 		onlineFetcher: fetcher.NewDefaultFetcher(),
 		isOnline:      cfg.RequireOnline,
 	}
-	def.Fetcher = agf
+	tp.fetcher = agf
 
-	dt, err := root.ReadFile("root.json") // TODO(@tonistiigi): instead save all root chain to cache and load from embedded root
+	tufOpts, err := tp.tufClientOpts()
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "creating TUF client options for trust provider")
 	}
-	def.Root = dt
 
-	c, err := tuf.New(def)
+	c, err := tuf.New(tufOpts)
 	if err != nil {
-		// this can still fail if the root has expired
+		// this can still fail if the last root or timestamps file has expired
 		return nil, errors.WithStack(err)
 	}
 	tp.client = c
@@ -108,6 +104,7 @@ func NewTrustProvider(cfg SigstoreRootsConfig) (*TrustProvider, error) {
 		go func() {
 			ticker := time.NewTicker(cfg.UpdateInterval)
 			defer ticker.Stop()
+			// TODO: stop condition
 			for range ticker.C {
 				tp.update()
 			}
@@ -117,37 +114,69 @@ func NewTrustProvider(cfg SigstoreRootsConfig) (*TrustProvider, error) {
 	return tp, nil
 }
 
+func (tp *TrustProvider) tufClientOpts() (*tuf.Options, error) {
+	def := tuf.DefaultOptions()
+	cacheDir := filepath.Join(tp.config.CachePath, tuf.URLToPath(def.RepositoryBaseURL))
+	root, err := os.OpenRoot(cacheDir)
+	if err != nil {
+		return nil, errors.Wrap(err, "opening cache directory for trust provider")
+	}
+	defer root.Close()
+
+	dt, err := root.ReadFile("root.json") // TODO(@tonistiigi): instead save all root chain to cache and load from embedded root
+	if err != nil {
+		return nil, err
+	}
+	def.Root = dt
+	def.CachePath = tp.config.CachePath
+	def.ForceCache = !tp.config.RequireOnline
+	def.Fetcher = tp.fetcher
+	return def, nil
+}
+
 func (tp *TrustProvider) update() error {
 	unlock, err := tp.lock()
 	if err != nil {
 		tp.mu.Lock()
-		tp.status = Status{Error: err}
+		tp.status.Error = err
 		tp.mu.Unlock()
 		return err
 	}
 	defer unlock()
-	err = tp.client.Refresh()
+
+	tufOpts, err := tp.tufClientOpts()
+	if err != nil {
+		return errors.Wrap(err, "creating TUF client options for trust provider")
+	}
+	c, err := tuf.New(tufOpts)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+	err = c.Refresh()
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
 	if err != nil {
-		tp.status = Status{Error: err}
+		tp.status.Error = err
 		return err
 	}
 	now := time.Now().UTC()
 	tp.status = Status{LastUpdated: &now}
+	tp.client = c
 	return nil
 }
 
-func (tp *TrustProvider) wait(ctx context.Context) error {
+func (tp *TrustProvider) wait(ctx context.Context) (*tuf.Client, error) {
 	first := true
 	errCh := make(chan error)
 	for {
-		tp.mu.Lock()
+		tp.mu.RLock()
 		status := tp.status
-		tp.mu.Unlock()
+		client := tp.client
+		tp.mu.RUnlock()
 		if status.LastUpdated != nil && status.Error == nil {
-			return nil
+			return client, nil
 		}
+		// try update if we are in error from some old reason that might be resolved now
 		if status.Error != nil && first {
 			go func() {
 				if err := tp.update(); err != nil {
@@ -158,9 +187,9 @@ func (tp *TrustProvider) wait(ctx context.Context) error {
 		}
 		select {
 		case err := <-errCh:
-			return err
+			return nil, err
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil, ctx.Err()
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
@@ -180,11 +209,15 @@ func (tp *TrustProvider) TrustedRoot(ctx context.Context) (*root.TrustedRoot, St
 	defer cancel()
 
 	var st Status
-	if err := tp.wait(ctx); err != nil { // return indication of last refresh error? TODO(@tonistiigi) does this make GetTarget fail as well and separate instance of client is needed for optional refresh?
+	client, err := tp.wait(ctx)
+	if err != nil { // return indication of last refresh error? TODO(@tonistiigi) does this make GetTarget fail as well and separate instance of client is needed for optional refresh?
 		st.Error = err
+		tp.mu.RLock()
+		client = tp.client
+		tp.mu.RUnlock()
 	}
 
-	jsonBytes, err := tp.client.GetTarget(trustedRootFilename)
+	jsonBytes, err := client.GetTarget(trustedRootFilename)
 	if err != nil {
 		return nil, st, err
 	}

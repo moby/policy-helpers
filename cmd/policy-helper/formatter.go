@@ -105,6 +105,13 @@ func (f SignatureInfoFormatter) Format(s fmt.State, verb rune) {
 				fmt.Fprintln(tw)
 			}
 
+			if f.TrustRootStatus.Error != nil {
+				fmt.Fprintf(s, "Warning: Latest trust root could not be fetched: %v. Possible connection issue or offline mode used.\n", f.TrustRootStatus.Error)
+				if f.TrustRootStatus.LastUpdated != nil {
+					fmt.Fprintf(s, "Using trust root last updated at: %s\n", f.TrustRootStatus.LastUpdated.Format("2006-01-02 15:04:05 MST"))
+				}
+			}
+
 		} else {
 			fmt.Fprintf(s, "%s,SAN=%s",
 				f.Signer.CertificateIssuer, f.Signer.SubjectAlternativeName)
