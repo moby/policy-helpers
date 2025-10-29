@@ -123,7 +123,9 @@ func runArtifactCmd(ctx context.Context, v *policy.Verifier, artifactPath string
 		return errors.Wrapf(err, "verifying artifact %q", artifactPath)
 	}
 
-	log.Printf("artifact %q verified: %+v", artifactPath, verified)
+	fmt.Fprintf(os.Stderr, "Artifact %s (digest: %s)\n\n", artifactPath, dgst)
+	fmt.Fprintf(os.Stderr, "%+v", SignatureInfoFormatter(*verified))
+
 	return nil
 }
 
@@ -153,7 +155,8 @@ func runImageCmd(ctx context.Context, v *policy.Verifier, imageRef, platformStr 
 		return errors.Wrapf(err, "verifying image %q", imageRef)
 	}
 
-	log.Printf("image %q verified: %+v", imageRef, verified)
+	fmt.Fprintf(os.Stderr, "Image %s (digest: %s)\n\n", imageRef, desc.Digest)
+	fmt.Fprintf(os.Stderr, "%+v", SignatureInfoFormatter(*verified))
 
 	return nil
 }
