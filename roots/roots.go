@@ -5,9 +5,11 @@ import (
 	"embed"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -79,9 +81,9 @@ func NewTrustProvider(cfg SigstoreRootsConfig) (*TrustProvider, error) {
 
 	agf := &airgappedFetcher{
 		baseURL:       def.RepositoryBaseURL,
-		cache:         root,
+		cacheDir:      cacheDir,
 		onlineFetcher: fetcher.NewDefaultFetcher(),
-		isOnline:      cfg.RequireOnline,
+		isOnline:      true,
 	}
 	tp.fetcher = agf
 
@@ -92,8 +94,18 @@ func NewTrustProvider(cfg SigstoreRootsConfig) (*TrustProvider, error) {
 
 	c, err := tuf.New(tufOpts)
 	if err != nil {
+		// try again with airgapped fetcher
 		// this can still fail if the last root or timestamps file has expired
-		return nil, errors.WithStack(err)
+
+		agf.isOnline = false
+		tufOpts, err := tp.tufClientOpts()
+		if err != nil {
+			return nil, errors.Wrap(err, "creating TUF client options for trust provider with airgapped fetcher")
+		}
+		c, err = tuf.New(tufOpts)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
 	}
 	tp.client = c
 	agf.isOnline = true
@@ -123,7 +135,7 @@ func (tp *TrustProvider) tufClientOpts() (*tuf.Options, error) {
 	}
 	defer root.Close()
 
-	dt, err := root.ReadFile("root.json") // TODO(@tonistiigi): instead save all root chain to cache and load from embedded root
+	dt, err := EmbeddedTUF.ReadFile("tuf-root/root.json")
 	if err != nil {
 		return nil, err
 	}
@@ -134,16 +146,20 @@ func (tp *TrustProvider) tufClientOpts() (*tuf.Options, error) {
 	return def, nil
 }
 
-func (tp *TrustProvider) update() error {
+func (tp *TrustProvider) update() (err error) {
+	defer func() {
+		if err != nil {
+			tp.mu.Lock()
+			tp.status.Error = err
+			tp.mu.Unlock()
+		}
+	}()
+
 	unlock, err := tp.lock()
 	if err != nil {
-		tp.mu.Lock()
-		tp.status.Error = err
-		tp.mu.Unlock()
 		return err
 	}
 	defer unlock()
-
 	tufOpts, err := tp.tufClientOpts()
 	if err != nil {
 		return errors.Wrap(err, "creating TUF client options for trust provider")
@@ -153,12 +169,11 @@ func (tp *TrustProvider) update() error {
 		return errors.WithStack(err)
 	}
 	err = c.Refresh()
-	tp.mu.Lock()
-	defer tp.mu.Unlock()
 	if err != nil {
-		tp.status.Error = err
 		return err
 	}
+	tp.mu.Lock()
+	defer tp.mu.Unlock()
 	now := time.Now().UTC()
 	tp.status = Status{LastUpdated: &now}
 	tp.client = c
@@ -167,7 +182,7 @@ func (tp *TrustProvider) update() error {
 
 func (tp *TrustProvider) wait(ctx context.Context) (*tuf.Client, error) {
 	first := true
-	errCh := make(chan error)
+	errCh := make(chan error, 1)
 	for {
 		tp.mu.RLock()
 		status := tp.status
@@ -179,14 +194,15 @@ func (tp *TrustProvider) wait(ctx context.Context) (*tuf.Client, error) {
 		// try update if we are in error from some old reason that might be resolved now
 		if status.Error != nil && first {
 			go func() {
-				if err := tp.update(); err != nil {
-					errCh <- err
-				}
+				errCh <- tp.update()
 			}()
 			first = false
 		}
 		select {
 		case err := <-errCh:
+			if err == nil {
+				continue
+			}
 			return nil, err
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -227,19 +243,64 @@ func (tp *TrustProvider) TrustedRoot(ctx context.Context) (*root.TrustedRoot, St
 
 type airgappedFetcher struct {
 	baseURL       string
-	cache         *os.Root
+	cacheDir      string
 	onlineFetcher fetcher.Fetcher
 	isOnline      bool
 }
 
 func (f *airgappedFetcher) DownloadFile(urlPath string, maxLength int64, dur time.Duration) ([]byte, error) {
 	if f.isOnline {
-		return f.onlineFetcher.DownloadFile(urlPath, maxLength, dur)
+		dt, err := f.onlineFetcher.DownloadFile(urlPath, maxLength, dur)
+		if err != nil {
+			return nil, err
+		}
+		// save root chain to cache so that it can be reverified while offline
+		u, err := url.Parse(urlPath)
+		if err != nil {
+			return nil, errors.Wrap(err, "parsing URL in trust provider fetcher")
+		}
+		cache, err := os.OpenRoot(f.cacheDir)
+		if err != nil {
+			return nil, errors.Wrap(err, "opening cache directory for trust provider")
+		}
+		defer cache.Close()
+		if strings.HasSuffix(u.Path, ".root.json") {
+			base := path.Base(u.Path)
+			if err := cache.MkdirAll("roots", 0o755); err != nil {
+				return nil, errors.Wrap(err, "creating roots directory in trust provider cache")
+			}
+			if err := cache.WriteFile(path.Join("roots", base), dt, 0o644); err != nil {
+				return nil, errors.Wrap(err, "caching root file in trust provider cache")
+			}
+		}
+		return dt, nil
 	}
 	const timestampFilename = "timestamp.json"
 	if urlPath == f.baseURL+"/"+timestampFilename {
-		if dt, err := f.cache.ReadFile(timestampFilename); err == nil {
+		cache, err := os.OpenRoot(f.cacheDir)
+		if err != nil {
+			return nil, errors.Wrap(err, "opening cache directory for trust provider")
+		}
+		defer cache.Close()
+		if dt, err := cache.ReadFile(timestampFilename); err == nil {
 			return dt, nil
+		}
+	}
+	if strings.HasSuffix(urlPath, ".root.json") {
+		u, err := url.Parse(urlPath)
+		if err == nil {
+			base := path.Base(u.Path)
+			if urlPath == f.baseURL+"/"+base && strings.HasSuffix(base, ".root.json") {
+				cache, err := os.OpenRoot(f.cacheDir)
+				if err != nil {
+					return nil, errors.Wrap(err, "opening cache directory for trust provider")
+				}
+				defer cache.Close()
+				dt, err := cache.ReadFile("roots/" + base)
+				if err == nil {
+					return dt, nil
+				}
+			}
 		}
 	}
 	return nil, &metadata.ErrDownloadHTTP{
