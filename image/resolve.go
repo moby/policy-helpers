@@ -159,17 +159,9 @@ func ResolveSignatureChain(ctx context.Context, provider ReferrersProvider, desc
 		Descriptor: *attestationDesc,
 	}
 
-	refs, err := provider.FetchReferrers(ctx, attestationDesc.Digest, ArtifactTypeSigstoreBundle)
+	refs, err := provider.FetchReferrers(ctx, attestationDesc.Digest, remotes.WithReferrerArtifactTypes(ArtifactTypeSigstoreBundle, ArtifactTypeCosignSignature))
 	if err != nil {
 		return nil, errors.Wrapf(err, "fetching referrers for attestation manifest %s", attestationDesc.Digest)
-	}
-
-	// bug in current containerd filter https://github.com/containerd/containerd/pull/12436
-	if len(refs) == 0 {
-		refs, err = provider.FetchReferrers(ctx, attestationDesc.Digest, ArtifactTypeCosignSignature)
-		if err != nil {
-			return nil, errors.Wrapf(err, "fetching referrers for attestation manifest %s", attestationDesc.Digest)
-		}
 	}
 
 	if len(refs) == 0 {
