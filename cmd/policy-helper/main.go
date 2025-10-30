@@ -130,7 +130,7 @@ func runArtifactCmd(ctx context.Context, v *policy.Verifier, artifactPath string
 }
 
 func runImageCmd(ctx context.Context, v *policy.Verifier, imageRef, platformStr string) error {
-	ref, err := reference.Parse(imageRef)
+	ref, err := reference.ParseNormalizedNamed(imageRef)
 	if err != nil {
 		return errors.Wrapf(err, "parsing image reference %q", imageRef)
 	}
