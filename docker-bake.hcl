@@ -59,3 +59,31 @@ target "lint-gopls" {
     inherits = [ "lint" ]
     target = "gopls-analyze"
 }
+
+target "binary" {
+    target = "binary"
+    platforms = [ "local" ]
+    output = [{
+        type = "local",
+        dest = "bin/"
+    }]
+}
+
+target "_all_platforms" {
+  platforms = [
+    "freebsd/amd64",
+    "linux/amd64",
+    "linux/arm64",
+    "linux/s390x",
+    "linux/ppc64le",
+    "linux/riscv64",
+    "windows/amd64",
+    "windows/arm64",
+    "darwin/amd64",
+    "darwin/arm64",
+  ]
+}
+
+target "binary-all" {
+    inherits = [ "binary", "_all_platforms" ]
+}
