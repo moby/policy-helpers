@@ -13,7 +13,7 @@ import (
 	"github.com/distribution/reference"
 	policy "github.com/moby/policy-helpers"
 	"github.com/moby/policy-helpers/githubapi"
-	"github.com/opencontainers/go-digest"
+	digest "github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/theupdateframework/go-tuf/v2/metadata"
@@ -130,7 +130,7 @@ func runArtifactCmd(ctx context.Context, v *policy.Verifier, artifactPath string
 }
 
 func runImageCmd(ctx context.Context, v *policy.Verifier, imageRef, platformStr string) error {
-	ref, err := reference.Parse(imageRef)
+	ref, err := reference.ParseNormalizedNamed(imageRef)
 	if err != nil {
 		return errors.Wrapf(err, "parsing image reference %q", imageRef)
 	}

@@ -10,9 +10,9 @@ import (
 	"github.com/containerd/containerd/v2/core/content"
 	"github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/containerd/v2/core/remotes"
-	"github.com/containerd/errdefs"
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/containerd/platforms"
-	"github.com/opencontainers/go-digest"
+	digest "github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 )
@@ -59,7 +59,7 @@ func resolveImageManifest(idx ocispecs.Index, platform ocispecs.Platform) (ocisp
 	})
 
 	if len(descs) == 0 {
-		return ocispecs.Descriptor{}, errors.Wrapf(errdefs.ErrNotFound, "no manifest for platform %+v", platforms.FormatAll(platform))
+		return ocispecs.Descriptor{}, errors.Wrapf(cerrdefs.ErrNotFound, "no manifest for platform %+v", platforms.FormatAll(platform))
 	}
 	return descs[0], nil
 }

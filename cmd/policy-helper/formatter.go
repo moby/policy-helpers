@@ -111,7 +111,6 @@ func (f SignatureInfoFormatter) Format(s fmt.State, verb rune) {
 					fmt.Fprintf(s, "Using trust root last updated at: %s\n", f.TrustRootStatus.LastUpdated.Format("2006-01-02 15:04:05 MST"))
 				}
 			}
-
 		} else {
 			fmt.Fprintf(s, "%s,SAN=%s",
 				f.Signer.CertificateIssuer, f.Signer.SubjectAlternativeName)

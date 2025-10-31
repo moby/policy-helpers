@@ -26,3 +26,64 @@ target "validate-tuf-root" {
         ROOT_SIGNING_VERSION = ROOT_SIGNING_VERSION
     }
 }
+
+group "validate-all" {
+  targets = ["lint", "lint-gopls", "validate-dockerfile", "validate-generated-files"]
+}
+
+group "validate-generated-files" {
+  targets = ["validate-tuf-root"]
+}
+
+target "lint" {
+  dockerfile = "./hack/dockerfiles/lint.Dockerfile"
+  output = ["type=cacheonly"]
+  args = {
+    GOLANGCI_FROM_SOURCE = "true"
+  }
+}
+
+target "validate-dockerfile" {
+  matrix = {
+    dockerfile = [
+      "Dockerfile",
+      "./hack/dockerfiles/lint.Dockerfile",
+    ]
+  }
+  name = "validate-dockerfile-${md5(dockerfile)}"
+  dockerfile = dockerfile
+  call = "check"
+}
+
+target "lint-gopls" {
+    inherits = [ "lint" ]
+    target = "gopls-analyze"
+}
+
+target "binary" {
+    target = "binary"
+    platforms = [ "local" ]
+    output = [{
+        type = "local",
+        dest = "bin/"
+    }]
+}
+
+target "_all_platforms" {
+  platforms = [
+    "freebsd/amd64",
+    "linux/amd64",
+    "linux/arm64",
+    "linux/s390x",
+    "linux/ppc64le",
+    "linux/riscv64",
+    "windows/amd64",
+    "windows/arm64",
+    "darwin/amd64",
+    "darwin/arm64",
+  ]
+}
+
+target "binary-all" {
+    inherits = [ "binary", "_all_platforms" ]
+}
