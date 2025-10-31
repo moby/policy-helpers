@@ -205,7 +205,7 @@ func (tp *TrustProvider) wait(ctx context.Context) (*tuf.Client, error) {
 			}
 			return nil, err
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, context.Cause(ctx)
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
@@ -221,8 +221,9 @@ func (tp *TrustProvider) lock() (func() error, error) {
 }
 
 func (tp *TrustProvider) TrustedRoot(ctx context.Context) (*root.TrustedRoot, Status, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
+	ctx, cnclFn := context.WithCancelCause(ctx)
+	ctx, _ = context.WithTimeoutCause(ctx, time.Second*5, errors.WithStack(context.DeadlineExceeded)) //nolint:govet
+	defer cnclFn(errors.WithStack(context.Canceled))
 
 	var st Status
 	client, err := tp.wait(ctx)

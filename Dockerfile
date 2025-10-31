@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.19-labs
 
-ARG ALPINE_VERSION=3.20
+ARG ALPINE_VERSION=3.22
 ARG ROOT_SIGNING_VERSION=main
 
 FROM scratch AS sigstore-root-signing

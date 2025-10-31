@@ -13,7 +13,7 @@ import (
 	"github.com/distribution/reference"
 	policy "github.com/moby/policy-helpers"
 	"github.com/moby/policy-helpers/githubapi"
-	"github.com/opencontainers/go-digest"
+	digest "github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/theupdateframework/go-tuf/v2/metadata"

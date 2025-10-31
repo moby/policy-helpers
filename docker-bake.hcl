@@ -26,3 +26,36 @@ target "validate-tuf-root" {
         ROOT_SIGNING_VERSION = ROOT_SIGNING_VERSION
     }
 }
+
+group "validate-all" {
+  targets = ["lint", "lint-gopls", "validate-dockerfile", "validate-generated-files"]
+}
+
+group "validate-generated-files" {
+  targets = ["validate-tuf-root"]
+}
+
+target "lint" {
+  dockerfile = "./hack/dockerfiles/lint.Dockerfile"
+  output = ["type=cacheonly"]
+  args = {
+    GOLANGCI_FROM_SOURCE = "true"
+  }
+}
+
+target "validate-dockerfile" {
+  matrix = {
+    dockerfile = [
+      "Dockerfile",
+      "./hack/dockerfiles/lint.Dockerfile",
+    ]
+  }
+  name = "validate-dockerfile-${md5(dockerfile)}"
+  dockerfile = dockerfile
+  call = "check"
+}
+
+target "lint-gopls" {
+    inherits = [ "lint" ]
+    target = "gopls-analyze"
+}

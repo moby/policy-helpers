@@ -9,7 +9,7 @@ import (
 
 	"github.com/moby/policy-helpers/image"
 	"github.com/moby/policy-helpers/roots"
-	"github.com/opencontainers/go-digest"
+	digest "github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	protobundle "github.com/sigstore/protobuf-specs/gen/pb-go/bundle/v1"
@@ -32,10 +32,10 @@ type Verifier struct {
 }
 
 type SignatureInfo struct {
-	Signer          certificate.Summary                  `json:"signature"`
-	Timestamps      []verify.TimestampVerificationResult `json:"timestamps"`
-	DockerReference string                               `json:"docker-reference,omitempty"`
-	TrustRootStatus roots.Status                         `json:"trust-root-status,omitempty"`
+	Signer          certificate.Summary
+	Timestamps      []verify.TimestampVerificationResult
+	DockerReference string
+	TrustRootStatus roots.Status
 }
 
 func NewVerifier(cfg Config) (*Verifier, error) {
@@ -292,7 +292,6 @@ func (v *Verifier) loadTrustProvider() (*roots.TrustProvider, error) {
 func anyCerificateIdentity() (verify.PolicyOption, error) {
 	sanMatcher, err := verify.NewSANMatcher("", ".*")
 	if err != nil {
-
 		return nil, err
 	}
 
@@ -305,12 +304,12 @@ func anyCerificateIdentity() (verify.PolicyOption, error) {
 		RunnerEnvironment: "github-hosted",
 	}
 
-	certId, err := verify.NewCertificateIdentity(sanMatcher, issuerMatcher, extensions)
+	certID, err := verify.NewCertificateIdentity(sanMatcher, issuerMatcher, extensions)
 	if err != nil {
 		return nil, err
 	}
 
-	return verify.WithCertificateIdentity(certId), nil
+	return verify.WithCertificateIdentity(certID), nil
 }
 
 func loadBundle(dt []byte) (*bundle.Bundle, error) {

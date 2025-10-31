@@ -7,8 +7,8 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/containerd/errdefs"
-	"github.com/opencontainers/go-digest"
+	cerrdefs "github.com/containerd/errdefs"
+	digest "github.com/opencontainers/go-digest"
 	"github.com/pkg/errors"
 )
 
@@ -20,7 +20,7 @@ func PullAttestation(ctx context.Context, client *http.Client, dgst digest.Diges
 		client = http.DefaultClient
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, errors.Wrapf(err, "creating request to %s", url)
 	}
@@ -32,7 +32,7 @@ func PullAttestation(ctx context.Context, client *http.Client, dgst digest.Diges
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, errors.Wrapf(errdefs.ErrNotFound, "attestation for digest %s in repo %s not found", dgst, repo)
+		return nil, errors.Wrapf(cerrdefs.ErrNotFound, "attestation for digest %s in repo %s not found", dgst, repo)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -56,7 +56,7 @@ func PullAttestation(ctx context.Context, client *http.Client, dgst digest.Diges
 	}
 
 	if len(result.Attestations) == 0 {
-		return nil, errors.Wrapf(errdefs.ErrNotFound, "no attestations found for digest %s in repo %s", dgst, repo)
+		return nil, errors.Wrapf(cerrdefs.ErrNotFound, "no attestations found for digest %s in repo %s", dgst, repo)
 	}
 
 	return *result.Attestations[0].Bundle, nil
