@@ -1,8 +1,5 @@
 version: "2"
 
-run:
-  modules-download-mode: vendor
-
 linters:
   default: none
   enable:
