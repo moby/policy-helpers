@@ -159,9 +159,17 @@ func ResolveSignatureChain(ctx context.Context, provider ReferrersProvider, desc
 		Descriptor: *attestationDesc,
 	}
 
-	refs, err := provider.FetchReferrers(ctx, attestationDesc.Digest, remotes.WithReferrerArtifactTypes(ArtifactTypeSigstoreBundle, ArtifactTypeCosignSignature))
+	// currently not setting WithReferrerArtifactTypes in here as some registries(e.g. aws) don't know how to filter two types at once.
+	allRefs, err := provider.FetchReferrers(ctx, attestationDesc.Digest)
 	if err != nil {
 		return nil, errors.Wrapf(err, "fetching referrers for attestation manifest %s", attestationDesc.Digest)
+	}
+
+	refs := make([]ocispecs.Descriptor, 0, len(allRefs))
+	for _, r := range allRefs {
+		if r.ArtifactType == ArtifactTypeSigstoreBundle || r.ArtifactType == ArtifactTypeCosignSignature {
+			refs = append(refs, r)
+		}
 	}
 
 	if len(refs) == 0 {
