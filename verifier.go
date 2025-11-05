@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
+	slsa02 "github.com/in-toto/in-toto-golang/in_toto/slsa_provenance/v0.2"
+	slsa1 "github.com/in-toto/in-toto-golang/in_toto/slsa_provenance/v1"
 	"github.com/moby/policy-helpers/image"
 	"github.com/moby/policy-helpers/roots"
 	digest "github.com/opencontainers/go-digest"
@@ -89,6 +91,10 @@ func (v *Verifier) VerifyArtifact(ctx context.Context, dgst digest.Digest, bundl
 		return nil, errors.Errorf("no valid signatures found")
 	}
 
+	if !isSLSAPredicateType(result.Statement.PredicateType) {
+		return nil, errors.Errorf("unexpected predicate type %q, expecting SLSA provenance", result.Statement.PredicateType)
+	}
+
 	return &SignatureInfo{
 		TrustRootStatus: st,
 		Signer:          *result.Signature.Certificate,
@@ -127,6 +133,16 @@ func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProv
 	}
 	if attestation.Subject.Size != sc.ImageManifest.Size {
 		return nil, errors.Errorf("attestation manifest %s subject size %d does not match image manifest size %d", sc.AttestationManifest.Digest, attestation.Subject.Size, sc.ImageManifest.Size)
+	}
+	hasSLSA := false
+	for _, l := range attestation.Layers {
+		if isSLSAPredicateType(l.Annotations["in-toto.io/predicate-type"]) {
+			hasSLSA = true
+			break
+		}
+	}
+	if !hasSLSA {
+		return nil, errors.Errorf("attestation manifest %s has no SLSA provenance layer", sc.AttestationManifest.Digest)
 	}
 
 	anyCert, err := anyCerificateIdentity()
@@ -331,4 +347,13 @@ func rawDigest(d digest.Digest) (string, []byte, error) {
 		return "", nil, errors.Wrapf(err, "decoding digest %s", d)
 	}
 	return alg, b, nil
+}
+
+func isSLSAPredicateType(v string) bool {
+	switch v {
+	case slsa1.PredicateSLSAProvenance, slsa02.PredicateSLSAProvenance:
+		return true
+	default:
+		return false
+	}
 }
