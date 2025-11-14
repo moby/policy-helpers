@@ -29,16 +29,17 @@ const (
 
 // hashedRecordSignedEntity implements verify.SignedEntity using cosign oldbundle format.
 type hashedRecordSignedEntity struct {
-	mfst *ocispecs.Manifest
-	cert verify.VerificationContent
-	sig  *messageSignatureContent
+	mfst  *ocispecs.Manifest
+	cert  verify.VerificationContent
+	sig   *messageSignatureContent
+	isDHI bool
 }
 
 var _ verify.SignedEntity = &hashedRecordSignedEntity{}
 var _ verify.SignatureContent = &hashedRecordSignedEntity{}
 var _ verify.VerificationContent = &hashedRecordSignedEntity{}
 
-func newHashedRecordSignedEntity(mfst *ocispecs.Manifest) (verify.SignedEntity, error) {
+func newHashedRecordSignedEntity(mfst *ocispecs.Manifest, isDHI bool) (verify.SignedEntity, error) {
 	if len(mfst.Layers) == 0 {
 		return nil, errors.New("no layers in manifest")
 	}
@@ -56,19 +57,6 @@ func newHashedRecordSignedEntity(mfst *ocispecs.Manifest) (verify.SignedEntity, 
 		return nil, errors.Wrapf(err, "decode digest")
 	}
 
-	certData := desc.Annotations[annotationCert]
-	if certData == "" {
-		return nil, errors.Errorf("no certificate annotation found")
-	}
-	block, _ := pem.Decode([]byte(certData))
-	if block == nil {
-		return nil, errors.New("no PEM certificate found in annotation")
-	}
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-
 	hr := &hashedRecordSignedEntity{
 		mfst: mfst,
 		sig: &messageSignatureContent{
@@ -76,8 +64,25 @@ func newHashedRecordSignedEntity(mfst *ocispecs.Manifest) (verify.SignedEntity, 
 			signature:       sig,
 			digestAlgorithm: desc.Digest.Algorithm().String(),
 		},
-		cert: bundle.NewCertificate(cert),
+		isDHI: isDHI,
 	}
+
+	if !isDHI {
+		certData := desc.Annotations[annotationCert]
+		if certData == "" {
+			return nil, errors.Errorf("no certificate annotation found")
+		}
+		block, _ := pem.Decode([]byte(certData))
+		if block == nil {
+			return nil, errors.New("no PEM certificate found in annotation")
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+		hr.cert = bundle.NewCertificate(cert)
+	}
+
 	return hr, nil
 }
 
@@ -170,6 +175,9 @@ func (m *messageSignatureContent) Signature() []byte {
 
 // CompareKey traces parameters and returns false.
 func (d *hashedRecordSignedEntity) CompareKey(k any, tm root.TrustedMaterial) bool {
+	if d.isDHI {
+		return (&bundle.PublicKey{}).CompareKey(k, tm)
+	}
 	if _, ok := k.(*x509.Certificate); !ok {
 		return false
 	}
@@ -177,14 +185,23 @@ func (d *hashedRecordSignedEntity) CompareKey(k any, tm root.TrustedMaterial) bo
 }
 
 func (d *hashedRecordSignedEntity) ValidAtTime(t time.Time, tm root.TrustedMaterial) bool {
+	if d.isDHI {
+		return (&bundle.PublicKey{}).ValidAtTime(t, tm)
+	}
 	return d.cert.ValidAtTime(t, tm)
 }
 
 func (d *hashedRecordSignedEntity) Certificate() *x509.Certificate {
+	if d.isDHI {
+		return nil
+	}
 	return d.cert.Certificate()
 }
 
 func (d *hashedRecordSignedEntity) PublicKey() verify.PublicKeyProvider {
+	if d.isDHI {
+		return bundle.PublicKey{}
+	}
 	return d.cert.PublicKey()
 }
 

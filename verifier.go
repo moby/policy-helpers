@@ -11,12 +11,14 @@ import (
 	slsa1 "github.com/in-toto/in-toto-golang/in_toto/slsa_provenance/v1"
 	"github.com/moby/policy-helpers/image"
 	"github.com/moby/policy-helpers/roots"
+	"github.com/moby/policy-helpers/roots/dhi"
 	digest "github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	protobundle "github.com/sigstore/protobuf-specs/gen/pb-go/bundle/v1"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 	"github.com/sigstore/sigstore-go/pkg/fulcio/certificate"
+	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/verify"
 	"golang.org/x/sync/singleflight"
 )
@@ -34,10 +36,11 @@ type Verifier struct {
 }
 
 type SignatureInfo struct {
-	Signer          certificate.Summary
+	Signer          *certificate.Summary
 	Timestamps      []verify.TimestampVerificationResult
 	DockerReference string
 	TrustRootStatus roots.Status
+	IsDHI           bool
 }
 
 func NewVerifier(cfg Config) (*Verifier, error) {
@@ -97,7 +100,7 @@ func (v *Verifier) VerifyArtifact(ctx context.Context, dgst digest.Digest, bundl
 
 	return &SignatureInfo{
 		TrustRootStatus: st,
-		Signer:          *result.Signature.Certificate,
+		Signer:          result.Signature.Certificate,
 		Timestamps:      result.VerifiedTimestamps,
 	}, nil
 }
@@ -155,15 +158,10 @@ func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProv
 	if err != nil {
 		return nil, errors.Wrap(err, "loading trust provider")
 	}
-
-	trustedRoot, st, err := tp.TrustedRoot(ctx)
+	var trustedRoot root.TrustedMaterial
+	fulcioRoot, st, err := tp.TrustedRoot(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "getting trusted root")
-	}
-
-	gv, err := verify.NewVerifier(trustedRoot, verify.WithSignedCertificateTimestamps(1), verify.WithTransparencyLog(1), verify.WithObserverTimestamps(1))
-	if err != nil {
-		return nil, errors.Wrap(err, "creating verifier")
 	}
 
 	sigBytes, err := sc.ManifestBytes(ctx, sc.SignatureManifest)
@@ -189,8 +187,7 @@ func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProv
 	if mfst.Subject.Size != sc.AttestationManifest.Size {
 		return nil, errors.Errorf("signature manifest %s subject size %d does not match attestation manifest size %d", sc.SignatureManifest.Digest, mfst.Subject.Size, sc.AttestationManifest.Size)
 	}
-
-	if len(mfst.Layers) != 1 {
+	if len(mfst.Layers) == 0 {
 		return nil, errors.Errorf("signature manifest %s has %d layers, expected 1", sc.SignatureManifest.Digest, len(mfst.Layers))
 	}
 	layer := mfst.Layers[0]
@@ -203,7 +200,7 @@ func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProv
 		if mfst.ArtifactType != image.ArtifactTypeSigstoreBundle {
 			return nil, errors.Errorf("signature manifest %s is not a bundle (artifact type %q)", sc.SignatureManifest.Digest, mfst.ArtifactType)
 		}
-		bundleBytes, err := image.ReadBlob(ctx, provider, layer)
+		bundleBytes, err := image.ReadBlob(ctx, sc.Provider, layer)
 		if err != nil {
 			return nil, errors.Wrapf(err, "reading bundle layer %s from signature manifest %s", layer.Digest, sc.SignatureManifest.Digest)
 		}
@@ -219,7 +216,7 @@ func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProv
 		}
 		artifactPolicy = verify.WithArtifactDigest(alg, rawDgst)
 	case image.MediaTypeCosignSimpleSigning:
-		payloadBytes, err := image.ReadBlob(ctx, provider, layer)
+		payloadBytes, err := image.ReadBlob(ctx, sc.Provider, layer)
 		if err != nil {
 			return nil, errors.Wrapf(err, "reading bundle layer %s from signature manifest %s", layer.Digest, sc.SignatureManifest.Digest)
 		}
@@ -247,7 +244,7 @@ func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProv
 		dockerReference = payload.Critical.Identity.DockerReference
 		// TODO: are more consistency checks needed for hashedrekord payload vs annotations?
 
-		hrse, err := newHashedRecordSignedEntity(&mfst)
+		hrse, err := newHashedRecordSignedEntity(&mfst, sc.DHI)
 		if err != nil {
 			return nil, errors.Wrapf(err, "loading hashed record signed entity from manifest %s", sc.SignatureManifest.Digest)
 		}
@@ -261,6 +258,38 @@ func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProv
 		return nil, errors.Errorf("signature manifest %s layer has invalid media type %s", sc.SignatureManifest.Digest, layer.MediaType)
 	}
 
+	verifierOpts := []verify.VerifierOption{}
+
+	if sc.DHI {
+		trustedRoot, err = dhi.TrustedRoot(fulcioRoot)
+		if err != nil {
+			return nil, errors.Wrap(err, "getting DHI trust root")
+		}
+		// DHI signature may or may not have transparency data
+		// validation needs to be done in a later additional policy step
+		if _, hasBundleAnnotation := layer.Annotations["dev.sigstore.cosign/bundle"]; !hasBundleAnnotation {
+			verifierOpts = append(verifierOpts, verify.WithNoObserverTimestamps())
+		} else {
+			verifierOpts = append(verifierOpts,
+				verify.WithObserverTimestamps(1),
+				verify.WithTransparencyLog(1),
+			)
+		}
+		// signed with pubkey without cert identity
+		anyCert = verify.WithoutIdentitiesUnsafe()
+	} else {
+		trustedRoot = fulcioRoot
+		verifierOpts = append(verifierOpts,
+			verify.WithObserverTimestamps(1),
+			verify.WithTransparencyLog(1),
+			verify.WithSignedCertificateTimestamps(1),
+		)
+	}
+	gv, err := verify.NewVerifier(trustedRoot, verifierOpts...)
+	if err != nil {
+		return nil, errors.Wrap(err, "creating verifier")
+	}
+
 	policy := verify.NewPolicy(artifactPolicy, anyCert)
 
 	result, err := gv.Verify(se, policy)
@@ -268,15 +297,16 @@ func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProv
 		return nil, errors.Wrap(err, "verifying bundle")
 	}
 
-	if result.Signature == nil || result.Signature.Certificate == nil {
+	if result.Signature == nil || (result.Signature.Certificate == nil && !sc.DHI) {
 		return nil, errors.Errorf("no valid signatures found")
 	}
 
 	return &SignatureInfo{
 		TrustRootStatus: st,
-		Signer:          *result.Signature.Certificate,
+		Signer:          result.Signature.Certificate,
 		Timestamps:      result.VerifiedTimestamps,
 		DockerReference: dockerReference,
+		IsDHI:           sc.DHI,
 	}, nil
 }
 

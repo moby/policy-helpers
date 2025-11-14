@@ -145,7 +145,7 @@ func runImageCmd(ctx context.Context, v *policy.Verifier, imageRef, platformStr 
 		pl = &p
 	}
 
-	desc, provider, err := providerFromRef(ref.String())
+	desc, provider, err := providerFromRef(ref)
 	if err != nil {
 		return errors.Wrapf(err, "getting provider for image %q", imageRef)
 	}

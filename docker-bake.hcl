@@ -6,6 +6,12 @@ variable "ROOT_SIGNING_VERSION" {
     description = "The git commit hash of sigstore/root-signing to use for embedded roots."
 }
 
+variable "DOCKER_HARDENED_IMAGES_KEYRING_VERSION" {
+    type    = string
+    default = "04ae44966821da8e5cdcb4c51137dee69297161a"
+    description = "The git branch or commit hash of docker/hardened-images-keyring to use for DHI verification."
+}
+
 target "tuf-root" {
     target = "tuf-root"
     output = [{
@@ -86,4 +92,25 @@ target "_all_platforms" {
 
 target "binary-all" {
     inherits = [ "binary", "_all_platforms" ]
+}
+
+target "dhi-pubkey" {
+    target = "dhi-pubkey"
+    output = [{
+        type = "local",
+        dest = "roots/dhi"
+    }]
+    args = {
+        DOCKER_HARDENED_IMAGES_KEYRING_VERSION = DOCKER_HARDENED_IMAGES_KEYRING_VERSION
+    }
+}
+
+target "validate-dhi-pubkey" {
+    target = "validate-dhi-pubkey"
+    output = [{
+        type = "cacheonly"
+    }]
+    args = {
+        DOCKER_HARDENED_IMAGES_KEYRING_VERSION = DOCKER_HARDENED_IMAGES_KEYRING_VERSION
+    }
 }
