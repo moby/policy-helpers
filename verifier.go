@@ -35,14 +35,6 @@ type Verifier struct {
 	tp  *roots.TrustProvider // tp may be nil if initialization failed
 }
 
-type SignatureInfo struct {
-	Signer          *certificate.Summary
-	Timestamps      []verify.TimestampVerificationResult
-	DockerReference string
-	TrustRootStatus roots.Status
-	IsDHI           bool
-}
-
 func NewVerifier(cfg Config) (*Verifier, error) {
 	if cfg.StateDir == "" {
 		return nil, errors.Errorf("state directory must be provided")
@@ -112,7 +104,10 @@ func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProv
 	}
 
 	if sc.AttestationManifest == nil || sc.SignatureManifest == nil {
-		return nil, errors.Errorf("no attestation or signature found for image %s", desc.Digest)
+		return nil, errors.WithStack(&NoSigChainError{
+			Target:         desc.Digest,
+			HasAttestation: sc.AttestationManifest != nil,
+		})
 	}
 
 	attestationBytes, err := sc.ManifestBytes(ctx, sc.AttestationManifest)

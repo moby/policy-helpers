@@ -37,8 +37,8 @@ type TrustProvider struct {
 }
 
 type Status struct {
-	Error       error
-	LastUpdated *time.Time
+	Error       error      `json:"error,omitempty"`
+	LastUpdated *time.Time `json:"last_updated,omitempty"`
 }
 
 const (
