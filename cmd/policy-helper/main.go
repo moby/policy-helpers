@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -34,6 +35,7 @@ func run() error {
 		bundle        string
 		repo          string
 		platform      string
+		json          bool
 	}
 	flag.StringVar(&opts.stateDir, "state-dir", "", "Path to state directory")
 	flag.BoolVar(&opts.requireOnline, "require-online", false, "Require online TUF roots update")
@@ -41,6 +43,7 @@ func run() error {
 	flag.StringVar(&opts.bundle, "bundle", "", "Path to attestation bundle file (if empty, will pull from GitHub)")
 	flag.StringVar(&opts.repo, "repo", "", "GitHub repository to pull attestation from (owner/repo)")
 	flag.StringVar(&opts.platform, "platform", "", "Platform to use for image verification (e.g., linux/amd64)")
+	flag.BoolVar(&opts.json, "json", false, "Output results in JSON format")
 
 	flag.Parse()
 
@@ -70,26 +73,48 @@ func run() error {
 		if len(args) == 0 {
 			return errors.Errorf("no artifact path specified")
 		}
-		return runArtifactCmd(ctx, v, args[0], opts.bundle, opts.repo)
+		dgst, siginfo, err := runArtifactCmd(ctx, v, args[0], opts.bundle, opts.repo)
+		if err != nil {
+			return err
+		}
+		if opts.json {
+			enc := json.NewEncoder(os.Stderr)
+			enc.SetIndent("", "  ")
+			return enc.Encode(*siginfo)
+		}
+		fmt.Fprintf(os.Stderr, "Artifact %s (digest: %s)\n\n", args[0], dgst)
+		fmt.Fprintf(os.Stderr, "%+v", SignatureInfoFormatter(*siginfo))
+		return nil
 	case "image":
 		args := args[1:]
 		if len(args) == 0 {
 			return errors.Errorf("no image reference specified")
 		}
-		return runImageCmd(ctx, v, args[0], opts.platform)
+		dgst, siginfo, err := runImageCmd(ctx, v, args[0], opts.platform)
+		if err != nil {
+			return err
+		}
+		if opts.json {
+			enc := json.NewEncoder(os.Stderr)
+			enc.SetIndent("", "  ")
+			return enc.Encode(*siginfo)
+		}
+		fmt.Fprintf(os.Stderr, "Image %s (digest: %s)\n\n", args[0], dgst)
+		fmt.Fprintf(os.Stderr, "%+v", SignatureInfoFormatter(*siginfo))
+		return nil
 	default:
 		return errors.Errorf("unknown command: %s", args[0])
 	}
 }
 
-func runArtifactCmd(ctx context.Context, v *policy.Verifier, artifactPath string, bundlePath, repo string) error {
+func runArtifactCmd(ctx context.Context, v *policy.Verifier, artifactPath string, bundlePath, repo string) (digest.Digest, *policy.SignatureInfo, error) {
 	var rc io.ReadCloser
 	if artifactPath == "-" {
 		rc = io.NopCloser(os.Stdin)
 	} else {
 		f, err := os.Open(artifactPath)
 		if err != nil {
-			return errors.Wrapf(err, "opening artifact file %q", artifactPath)
+			return "", nil, errors.Wrapf(err, "opening artifact file %q", artifactPath)
 		}
 		rc = f
 	}
@@ -97,7 +122,7 @@ func runArtifactCmd(ctx context.Context, v *policy.Verifier, artifactPath string
 	dgst, err := digest.FromReader(rc)
 	if err != nil {
 		rc.Close()
-		return errors.Wrapf(err, "computing digest for artifact %q", artifactPath)
+		return "", nil, errors.Wrapf(err, "computing digest for artifact %q", artifactPath)
 	}
 
 	rc.Close()
@@ -106,40 +131,37 @@ func runArtifactCmd(ctx context.Context, v *policy.Verifier, artifactPath string
 	if bundlePath != "" {
 		b, err := os.ReadFile(bundlePath)
 		if err != nil {
-			return errors.Wrapf(err, "reading bundle file %q", bundlePath)
+			return "", nil, errors.Wrapf(err, "reading bundle file %q", bundlePath)
 		}
 		bundleBytes = b
 	} else if repo != "" {
 		bundleBytes, err = githubapi.PullAttestation(ctx, nil, dgst, repo)
 		if err != nil {
-			return errors.Wrapf(err, "pulling attestation from repo %q", repo)
+			return "", nil, errors.Wrapf(err, "pulling attestation from repo %q", repo)
 		}
 	} else {
-		return errors.Errorf("either bundle path or repo must be specified")
+		return "", nil, errors.Errorf("either bundle path or repo must be specified")
 	}
 
 	verified, err := v.VerifyArtifact(ctx, dgst, bundleBytes)
 	if err != nil {
-		return errors.Wrapf(err, "verifying artifact %q", artifactPath)
+		return "", nil, errors.Wrapf(err, "verifying artifact %q", artifactPath)
 	}
 
-	fmt.Fprintf(os.Stderr, "Artifact %s (digest: %s)\n\n", artifactPath, dgst)
-	fmt.Fprintf(os.Stderr, "%+v", SignatureInfoFormatter(*verified))
-
-	return nil
+	return dgst, verified, nil
 }
 
-func runImageCmd(ctx context.Context, v *policy.Verifier, imageRef, platformStr string) error {
+func runImageCmd(ctx context.Context, v *policy.Verifier, imageRef, platformStr string) (digest.Digest, *policy.SignatureInfo, error) {
 	ref, err := reference.ParseNormalizedNamed(imageRef)
 	if err != nil {
-		return errors.Wrapf(err, "parsing image reference %q", imageRef)
+		return "", nil, errors.Wrapf(err, "parsing image reference %q", imageRef)
 	}
 
 	var pl *ocispecs.Platform
 	if platformStr != "" {
 		p, err := platforms.Parse(platformStr)
 		if err != nil {
-			return errors.Wrapf(err, "parsing platform %q", platformStr)
+			return "", nil, errors.Wrapf(err, "parsing platform %q", platformStr)
 		}
 		p = platforms.Normalize(p)
 		pl = &p
@@ -147,18 +169,15 @@ func runImageCmd(ctx context.Context, v *policy.Verifier, imageRef, platformStr 
 
 	desc, provider, err := providerFromRef(ref)
 	if err != nil {
-		return errors.Wrapf(err, "getting provider for image %q", imageRef)
+		return "", nil, errors.Wrapf(err, "getting provider for image %q", imageRef)
 	}
 
 	verified, err := v.VerifyImage(ctx, provider, desc, pl)
 	if err != nil {
-		return errors.Wrapf(err, "verifying image %q", imageRef)
+		return "", nil, errors.Wrapf(err, "verifying image %q", imageRef)
 	}
 
-	fmt.Fprintf(os.Stderr, "Image %s (digest: %s)\n\n", imageRef, desc.Digest)
-	fmt.Fprintf(os.Stderr, "%+v", SignatureInfoFormatter(*verified))
-
-	return nil
+	return desc.Digest, verified, nil
 }
 
 type tufLogger struct {
