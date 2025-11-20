@@ -14,6 +14,7 @@ import (
 	"github.com/distribution/reference"
 	policy "github.com/moby/policy-helpers"
 	"github.com/moby/policy-helpers/githubapi"
+	"github.com/moby/policy-helpers/types"
 	digest "github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
@@ -107,7 +108,7 @@ func run() error {
 	}
 }
 
-func runArtifactCmd(ctx context.Context, v *policy.Verifier, artifactPath string, bundlePath, repo string) (digest.Digest, *policy.SignatureInfo, error) {
+func runArtifactCmd(ctx context.Context, v *policy.Verifier, artifactPath string, bundlePath, repo string) (digest.Digest, *types.SignatureInfo, error) {
 	var rc io.ReadCloser
 	if artifactPath == "-" {
 		rc = io.NopCloser(os.Stdin)
@@ -151,7 +152,7 @@ func runArtifactCmd(ctx context.Context, v *policy.Verifier, artifactPath string
 	return dgst, verified, nil
 }
 
-func runImageCmd(ctx context.Context, v *policy.Verifier, imageRef, platformStr string) (digest.Digest, *policy.SignatureInfo, error) {
+func runImageCmd(ctx context.Context, v *policy.Verifier, imageRef, platformStr string) (digest.Digest, *types.SignatureInfo, error) {
 	ref, err := reference.ParseNormalizedNamed(imageRef)
 	if err != nil {
 		return "", nil, errors.Wrapf(err, "parsing image reference %q", imageRef)

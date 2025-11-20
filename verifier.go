@@ -12,6 +12,7 @@ import (
 	"github.com/moby/policy-helpers/image"
 	"github.com/moby/policy-helpers/roots"
 	"github.com/moby/policy-helpers/roots/dhi"
+	"github.com/moby/policy-helpers/types"
 	digest "github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
@@ -46,7 +47,7 @@ func NewVerifier(cfg Config) (*Verifier, error) {
 	return v, nil
 }
 
-func (v *Verifier) VerifyArtifact(ctx context.Context, dgst digest.Digest, bundleBytes []byte) (*SignatureInfo, error) {
+func (v *Verifier) VerifyArtifact(ctx context.Context, dgst digest.Digest, bundleBytes []byte) (*types.SignatureInfo, error) {
 	anyCert, err := anyCerificateIdentity()
 	if err != nil {
 		return nil, errors.WithStack(err)
@@ -90,14 +91,14 @@ func (v *Verifier) VerifyArtifact(ctx context.Context, dgst digest.Digest, bundl
 		return nil, errors.Errorf("unexpected predicate type %q, expecting SLSA provenance", result.Statement.PredicateType)
 	}
 
-	return &SignatureInfo{
-		TrustRootStatus: st,
+	return &types.SignatureInfo{
+		TrustRootStatus: toRootStatus(st),
 		Signer:          result.Signature.Certificate,
-		Timestamps:      result.VerifiedTimestamps,
+		Timestamps:      toTimestamps(result.VerifiedTimestamps),
 	}, nil
 }
 
-func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProvider, desc ocispecs.Descriptor, platform *ocispecs.Platform) (*SignatureInfo, error) {
+func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProvider, desc ocispecs.Descriptor, platform *ocispecs.Platform) (*types.SignatureInfo, error) {
 	sc, err := image.ResolveSignatureChain(ctx, provider, desc, platform)
 	if err != nil {
 		return nil, errors.Wrapf(err, "resolving signature chain for image %s", desc.Digest)
@@ -296,10 +297,10 @@ func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProv
 		return nil, errors.Errorf("no valid signatures found")
 	}
 
-	return &SignatureInfo{
-		TrustRootStatus: st,
+	return &types.SignatureInfo{
+		TrustRootStatus: toRootStatus(st),
 		Signer:          result.Signature.Certificate,
-		Timestamps:      result.VerifiedTimestamps,
+		Timestamps:      toTimestamps(result.VerifiedTimestamps),
 		DockerReference: dockerReference,
 		IsDHI:           sc.DHI,
 	}, nil
@@ -381,4 +382,26 @@ func isSLSAPredicateType(v string) bool {
 	default:
 		return false
 	}
+}
+
+func toTimestamps(ts []verify.TimestampVerificationResult) []types.TimestampVerificationResult {
+	tsout := make([]types.TimestampVerificationResult, len(ts))
+	for i, t := range ts {
+		tsout[i] = types.TimestampVerificationResult{
+			Type:      t.Type,
+			URI:       t.URI,
+			Timestamp: t.Timestamp,
+		}
+	}
+	return tsout
+}
+
+func toRootStatus(st roots.Status) types.TrustRootStatus {
+	trs := types.TrustRootStatus{
+		LastUpdated: st.LastUpdated,
+	}
+	if st.Error != nil {
+		trs.Error = st.Error.Error()
+	}
+	return trs
 }
