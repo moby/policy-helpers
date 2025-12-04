@@ -1,6 +1,8 @@
 package types
 
-import "strings"
+import (
+	"strings"
+)
 
 const (
 	githubPrefix                 = "https://github.com/"
@@ -106,10 +108,6 @@ func isGithubBuilder(s SignatureInfo) bool {
 	}
 
 	if !strings.HasPrefix(s.Signer.SourceRepositoryURI, githubPrefix) {
-		return false
-	}
-
-	if s.Signer.BuildTrigger != "workflow_dispatch" {
 		return false
 	}
 

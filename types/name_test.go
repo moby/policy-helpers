@@ -180,10 +180,11 @@ func TestSignatureInfo_Name(t *testing.T) {
 		},
 
 		{
-			name: "neg-wrong-trigger",
+			name: "different-trigger",
 			in: SignatureInfo{
-				Kind:       KindSelfSigned,
-				Timestamps: ts(),
+				Kind:          KindDockerGithubBuilder,
+				Timestamps:    ts(),
+				SignatureType: SignatureBundle,
 				Signer: &certificate.Summary{
 					CertificateIssuer:      sigstoreIssuer,
 					SubjectAlternativeName: githubBuilderURI,
@@ -197,7 +198,7 @@ func TestSignatureInfo_Name(t *testing.T) {
 					},
 				},
 			},
-			want: "Self-Signed",
+			want: "Docker GitHub Builder (foo/bar@main)",
 		},
 
 		{
