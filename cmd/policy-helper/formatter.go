@@ -17,6 +17,8 @@ func (f SignatureInfoFormatter) Format(s fmt.State, verb rune) {
 			tw := tabwriter.NewWriter(s, 0, 0, 2, ' ', 0)
 			defer tw.Flush()
 
+			fmt.Fprintf(tw, "Signature:\t%s\n", types.SignatureInfo(f).Name())
+
 			if f.IsDHI {
 				fmt.Fprintln(tw, "Image Type:\tDocker Hardened Image (DHI)")
 			}
