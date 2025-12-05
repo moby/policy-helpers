@@ -36,16 +36,16 @@ func (k Kind) String() string {
 type SignatureType int
 
 const (
-	SignatureBundle       SignatureType = 1
-	SignatureHashedRecord SignatureType = 2
+	SignatureBundleV03       SignatureType = 1
+	SignatureSimpleSigningV1 SignatureType = 2
 )
 
 func (st SignatureType) String() string {
 	switch st {
-	case SignatureBundle:
+	case SignatureBundleV03:
 		return "Sigstore Bundle"
-	case SignatureHashedRecord:
-		return "Sigstore HashedRecord"
+	case SignatureSimpleSigningV1:
+		return "SimpleSigning v1"
 	default:
 		return "Unknown"
 	}

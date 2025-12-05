@@ -29,7 +29,7 @@ func TestSignatureInfo_Name(t *testing.T) {
 			in: SignatureInfo{
 				Kind:          KindDockerGithubBuilder,
 				Timestamps:    ts(),
-				SignatureType: SignatureBundle,
+				SignatureType: SignatureBundleV03,
 				Signer: &certificate.Summary{
 					CertificateIssuer:      sigstoreIssuer,
 					SubjectAlternativeName: githubBuilderURI + "build.yml",
@@ -51,7 +51,7 @@ func TestSignatureInfo_Name(t *testing.T) {
 			in: SignatureInfo{
 				Kind:          KindDockerGithubBuilder,
 				Timestamps:    ts(),
-				SignatureType: SignatureBundle,
+				SignatureType: SignatureBundleV03,
 				Signer: &certificate.Summary{
 					CertificateIssuer:      sigstoreIssuer,
 					SubjectAlternativeName: githubBuilderURIExperimental + "exp.yml",
@@ -73,7 +73,7 @@ func TestSignatureInfo_Name(t *testing.T) {
 			in: SignatureInfo{
 				Kind:          KindSelfSigned,
 				Timestamps:    ts(),
-				SignatureType: SignatureHashedRecord,
+				SignatureType: SignatureSimpleSigningV1,
 				Signer: &certificate.Summary{
 					CertificateIssuer:      sigstoreIssuer,
 					SubjectAlternativeName: githubBuilderURI + "build.yml",
@@ -184,7 +184,7 @@ func TestSignatureInfo_Name(t *testing.T) {
 			in: SignatureInfo{
 				Kind:          KindDockerGithubBuilder,
 				Timestamps:    ts(),
-				SignatureType: SignatureBundle,
+				SignatureType: SignatureBundleV03,
 				Signer: &certificate.Summary{
 					CertificateIssuer:      sigstoreIssuer,
 					SubjectAlternativeName: githubBuilderURI,
@@ -248,7 +248,7 @@ func TestSignatureInfo_Name(t *testing.T) {
 			in: SignatureInfo{
 				Kind:          KindDockerGithubBuilder,
 				Timestamps:    ts(),
-				SignatureType: SignatureBundle,
+				SignatureType: SignatureBundleV03,
 				Signer: &certificate.Summary{
 					CertificateIssuer:      sigstoreIssuer,
 					SubjectAlternativeName: githubBuilderURI + "release.yml",

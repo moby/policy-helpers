@@ -95,7 +95,7 @@ func (v *Verifier) VerifyArtifact(ctx context.Context, dgst digest.Digest, bundl
 		TrustRootStatus: toRootStatus(st),
 		Signer:          result.Signature.Certificate,
 		Timestamps:      toTimestamps(result.VerifiedTimestamps),
-		SignatureType:   types.SignatureBundle,
+		SignatureType:   types.SignatureBundleV03,
 	}
 	si.Kind = si.DetectKind()
 	return si, nil
@@ -194,7 +194,7 @@ func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProv
 	var dockerReference string
 
 	var se verify.SignedEntity
-	sigType := types.SignatureBundle
+	sigType := types.SignatureBundleV03
 	switch layer.MediaType {
 	case image.ArtifactTypeSigstoreBundle:
 		if mfst.ArtifactType != image.ArtifactTypeSigstoreBundle {
@@ -216,7 +216,7 @@ func (v *Verifier) VerifyImage(ctx context.Context, provider image.ReferrersProv
 		}
 		artifactPolicy = verify.WithArtifactDigest(alg, rawDgst)
 	case image.MediaTypeCosignSimpleSigning:
-		sigType = types.SignatureHashedRecord
+		sigType = types.SignatureSimpleSigningV1
 		payloadBytes, err := image.ReadBlob(ctx, sc.Provider, layer)
 		if err != nil {
 			return nil, errors.Wrapf(err, "reading bundle layer %s from signature manifest %s", layer.Digest, sc.SignatureManifest.Digest)

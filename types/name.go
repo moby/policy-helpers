@@ -119,7 +119,7 @@ func isGithubBuilder(s SignatureInfo) bool {
 		return false
 	}
 
-	if s.SignatureType != SignatureBundle {
+	if s.SignatureType != SignatureBundleV03 {
 		return false
 	}
 
