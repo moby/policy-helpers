@@ -47,7 +47,12 @@ func NewVerifier(cfg Config) (*Verifier, error) {
 	return v, nil
 }
 
-func (v *Verifier) VerifyArtifact(ctx context.Context, dgst digest.Digest, bundleBytes []byte) (*types.SignatureInfo, error) {
+func (v *Verifier) VerifyArtifact(ctx context.Context, dgst digest.Digest, bundleBytes []byte, opt ...ArtifactVerifyOpt) (*types.SignatureInfo, error) {
+	opts := &ArtifactVerifyOpts{}
+	for _, o := range opt {
+		o(opts)
+	}
+
 	anyCert, err := anyCerificateIdentity()
 	if err != nil {
 		return nil, errors.WithStack(err)
@@ -87,7 +92,7 @@ func (v *Verifier) VerifyArtifact(ctx context.Context, dgst digest.Digest, bundl
 		return nil, errors.Errorf("no valid signatures found")
 	}
 
-	if !isSLSAPredicateType(result.Statement.PredicateType) {
+	if !opts.SLSANotRequired && !isSLSAPredicateType(result.Statement.PredicateType) {
 		return nil, errors.Errorf("unexpected predicate type %q, expecting SLSA provenance", result.Statement.PredicateType)
 	}
 
@@ -358,6 +363,18 @@ func anyCerificateIdentity() (verify.PolicyOption, error) {
 	}
 
 	return verify.WithCertificateIdentity(certID), nil
+}
+
+type ArtifactVerifyOpts struct {
+	SLSANotRequired bool
+}
+
+type ArtifactVerifyOpt func(*ArtifactVerifyOpts)
+
+func WithSLSANotRequired() ArtifactVerifyOpt {
+	return func(o *ArtifactVerifyOpts) {
+		o.SLSANotRequired = true
+	}
 }
 
 func loadBundle(dt []byte) (*bundle.Bundle, error) {
