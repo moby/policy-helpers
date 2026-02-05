@@ -12,6 +12,12 @@ variable "DOCKER_HARDENED_IMAGES_KEYRING_VERSION" {
     description = "The git branch or commit hash of docker/hardened-images-keyring to use for DHI verification."
 }
 
+target "_common" {
+  args = {
+    BUILDKIT_CONTEXT_KEEP_GIT_DIR = 1
+  }
+}
+
 target "tuf-root" {
     target = "tuf-root"
     output = [{
@@ -34,7 +40,7 @@ target "validate-tuf-root" {
 }
 
 group "validate-all" {
-  targets = ["lint", "lint-gopls", "validate-dockerfile", "validate-generated-files"]
+  targets = ["lint", "lint-gopls", "validate-vendor", "validate-dockerfile", "validate-generated-files"]
 }
 
 group "validate-generated-files" {
@@ -49,11 +55,19 @@ target "lint" {
   }
 }
 
+target "validate-vendor" {
+  inherits = ["_common"]
+  dockerfile = "./hack/dockerfiles/vendor.Dockerfile"
+  target = "validate"
+  output = ["type=cacheonly"]
+}
+
 target "validate-dockerfile" {
   matrix = {
     dockerfile = [
       "Dockerfile",
       "./hack/dockerfiles/lint.Dockerfile",
+      "./hack/dockerfiles/vendor.Dockerfile"
     ]
   }
   name = "validate-dockerfile-${md5(dockerfile)}"
@@ -64,6 +78,21 @@ target "validate-dockerfile" {
 target "lint-gopls" {
     inherits = [ "lint" ]
     target = "gopls-analyze"
+}
+
+target "vendor" {
+  inherits = ["_common"]
+  dockerfile = "./hack/dockerfiles/vendor.Dockerfile"
+  target = "update"
+  output = ["."]
+}
+
+target "mod-outdated" {
+  inherits = ["_common"]
+  dockerfile = "./hack/dockerfiles/vendor.Dockerfile"
+  target = "outdated"
+  no-cache-filter = ["outdated"]
+  output = ["type=cacheonly"]
 }
 
 target "binary" {
