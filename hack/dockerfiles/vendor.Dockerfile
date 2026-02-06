@@ -15,8 +15,9 @@ RUN --mount=target=/context \
   set -e
   rsync -a /context/. .
   go mod tidy
+  go mod vendor
   mkdir /out
-  cp -r go.mod go.sum /out
+  cp -r go.mod go.sum vendor /out
 EOT
 
 FROM scratch AS update
@@ -28,10 +29,11 @@ RUN --mount=target=/context \
   set -e
   rsync -a /context/. .
   git add -A
+  rm -rf vendor
   cp -rf /out/* .
-  if [ -n "$(git status --porcelain -- go.mod go.sum)" ]; then
-    echo >&2 'ERROR: Vendor result differs. Please vendor your package with "docker buildx bake vendor"'
-    git status --porcelain -- go.mod go.sum
+  if [ -n "$(git status --porcelain -- go.mod go.sum vendor)" ]; then
+    echo >&2 'ERROR: Vendor result differs. Please vendor your package with "make vendor"'
+    git status --porcelain -- go.mod go.sum vendor
     exit 1
   fi
 EOT
