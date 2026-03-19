@@ -15,10 +15,10 @@ target "_common" {
 }
 
 target "tuf-root" {
-    target = "tuf-root"
+    target = "tuf-root-update"
     output = [{
         type = "local",
-        dest = "roots/tuf-root"
+        dest = "."
     }]
     args = {
         ROOT_SIGNING_VERSION = ROOT_SIGNING_VERSION
