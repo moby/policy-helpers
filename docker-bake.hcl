@@ -9,7 +9,7 @@ variable "ROOT_SIGNING_VERSION" {
 variable "DOCKER_HARDENED_IMAGES_KEYRING_VERSION" {
     type    = string
     default = "04ae44966821da8e5cdcb4c51137dee69297161a"
-    description = "The git branch or commit hash of docker/hardened-images-keyring to use for DHI verification."
+    description = "The git branch or commit hash of docker-hardened-images/keyring to use for DHI verification."
 }
 
 target "_common" {
