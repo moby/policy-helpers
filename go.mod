@@ -1,6 +1,6 @@
 module github.com/moby/policy-helpers
 
-go 1.25.5
+go 1.25.0
 
 require (
 	github.com/containerd/containerd/v2 v2.2.3
@@ -16,7 +16,7 @@ require (
 	github.com/sigstore/sigstore v1.10.8
 	github.com/sigstore/sigstore-go v1.1.4
 	github.com/stretchr/testify v1.11.1
-	github.com/theupdateframework/go-tuf/v2 v2.4.1
+	github.com/theupdateframework/go-tuf/v2 v2.4.2
 	golang.org/x/sync v0.20.0
 )
 
